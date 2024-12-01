@@ -14,7 +14,9 @@ const WATCHED_IDS = new Set(validatedConfig.watchedIds);
 const cache = {
     characters: new Map(),
     ships: new Map(),
-    systems: new Map()
+    systems: new Map(),
+    corporations: new Map(),
+    alliances: new Map()
 };
 
 const fetchFromESI = async (path) => {
@@ -68,15 +70,48 @@ const getSystemInfo = async (systemId) => {
     return { name: 'Unknown System' };
 };
 
+const getCorpInfo = async (corpId) => {
+    if (!corpId) return { name: 'Unknown' };
+    if (cache.corporations.has(corpId)) return cache.corporations.get(corpId);
+    
+    const info = await fetchFromESI(`/corporations/${corpId}/`);
+    if (info) {
+        cache.corporations.set(corpId, info);
+        return info;
+    }
+    return { name: 'Unknown' };
+};
+
+const getAllianceInfo = async (allianceId) => {
+    if (!allianceId) return null;
+    if (cache.alliances.has(allianceId)) return cache.alliances.get(allianceId);
+    
+    const info = await fetchFromESI(`/alliances/${allianceId}/`);
+    if (info) {
+        cache.alliances.set(allianceId, info);
+        return info;
+    }
+    return null;
+};
+
 const formatSlackMessage = async (killmail, relevanceCheck) => {
     try {
         // Fetch all required information
         const victim = await getCharacterInfo(killmail.victim.character_id);
+        const victimCorp = await getCorpInfo(killmail.victim.corporation_id);
+        const victimAlliance = killmail.victim.alliance_id ? 
+            await getAllianceInfo(killmail.victim.alliance_id) : null;
         const shipType = await getShipInfo(killmail.victim.ship_type_id);
         const system = await getSystemInfo(killmail.solar_system_id);
         
         const time = moment(killmail.killmail_time).format('DD-MM-YYYY HH:mm');
         const isKill = relevanceCheck.reason === 'attacker';
+        
+        // Format victim affiliation with clickable links
+        const victimAffiliation = [
+            `[<https://zkillboard.com/corporation/${killmail.victim.corporation_id}/|${victimCorp.name}>]`,
+            victimAlliance ? `[<https://zkillboard.com/alliance/${killmail.victim.alliance_id}/|${victimAlliance.name}>]` : ''
+        ].filter(Boolean).join(' ');
         
         // Get final blow attacker info
         const finalBlowAttacker = killmail.attackers.find(a => a.final_blow);
@@ -128,7 +163,7 @@ const formatSlackMessage = async (killmail, relevanceCheck) => {
                         text: {
                             type: 'mrkdwn',
                             text: `_${time}_ <https://zkillboard.com/kill/${killmail.killmail_id}/|*zKill*>\n` +
-                                  `<https://zkillboard.com/character/${killmail.victim.character_id}/|${victim.name}>\n` +
+                                  `<https://zkillboard.com/character/${killmail.victim.character_id}/|${victim.name}> ${victimAffiliation}\n` +
                                   `${shipType.name} in ${system.name}`
                         },
                         fields: [...finalBlowField, ...topDamageField, ...attackerShipField],
