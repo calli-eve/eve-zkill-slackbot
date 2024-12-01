@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  bot:
+    build: .
+    volumes:
+      - ./config.json:/app/config.json
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "new WebSocket('wss://zkillboard.com/websocket/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3 

@@ -1,0 +1,16 @@
+{
+  "name": "zkill-slack-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Posts zkillboard kills to Slack",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.0",
+    "moment": "^2.29.4",
+    "ws": "^8.16.0",
+    "zod": "^3.22.4"
+  }
+} 
