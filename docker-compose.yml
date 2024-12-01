@@ -4,7 +4,12 @@ services:
     build: .
     volumes:
       - ./config.json:/app/config.json
-    restart: unless-stopped
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "node", "-e", "new WebSocket('wss://zkillboard.com/websocket/')"]
       interval: 30s
