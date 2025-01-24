@@ -1,4 +1,3 @@
-import WebSocket from 'ws';
 import fetch from 'node-fetch';
 import moment from 'moment';
 import config from './config.json' assert { type: 'json' };
@@ -94,7 +93,7 @@ const getAllianceInfo = async (allianceId) => {
     return null;
 };
 
-const formatSlackMessage = async (killmail, relevanceCheck) => {
+const formatSlackMessage = async (killmail, relevanceCheck, zkb) => {
     try {
         // Fetch all required information
         const victim = await getCharacterInfo(killmail.victim.character_id);
@@ -179,7 +178,7 @@ const formatSlackMessage = async (killmail, relevanceCheck) => {
                             type: 'mrkdwn',
                             text: `Estimated value: ${new Intl.NumberFormat('en-US', {
                                 maximumFractionDigits: 0
-                            }).format(killmail.zkb.totalValue)} ISK`
+                            }).format(zkb.totalValue)} ISK`
                         }
                     }
                 ]
@@ -210,6 +209,14 @@ const postToSlack = async (message) => {
 };
 
 const checkKillmailRelevance = (killmail) => {
+    // If watchedIds is empty, all kills are relevant
+    if (validatedConfig.watchedIds.length === 0) {
+        return {
+            isRelevant: true,
+            reason: 'all'
+        };
+    }
+
     // Check if victim is from watched entities
     if (WATCHED_IDS.has(killmail.victim.corporation_id) || 
         (killmail.victim.alliance_id && WATCHED_IDS.has(killmail.victim.alliance_id))) {
@@ -238,47 +245,56 @@ const checkKillmailRelevance = (killmail) => {
     };
 };
 
-const connectWebSocket = () => {
-    const ws = new WebSocket('wss://zkillboard.com/websocket/');
-
-    ws.on('open', () => {
-        console.log('Connected to zKillboard WebSocket');
-        
-        const subscription = {
-            action: "sub",
-            channel: "killstream"
-        };
-        
-        ws.send(JSON.stringify(subscription));
-    });
-
-    ws.on('message', async (data) => {
+// Replace the WebSocket implementation with RedisQ polling
+const pollRedisQ = async () => {
+    console.log('Starting RedisQ polling...');
+    console.log(`Using queue ID: ${validatedConfig.queueId}`);
+    
+    while (true) {
         try {
-            const killmail = JSON.parse(data);
-            const relevanceCheck = checkKillmailRelevance(killmail);
-            
-            if (relevanceCheck.isRelevant) {
-                const message = await formatSlackMessage(killmail, relevanceCheck);
-                if (message) {
-                    await postToSlack(message);
+            const response = await fetch(`https://redisq.zkillboard.com/listen.php?queueID=${validatedConfig.queueId}`, {
+                headers: {
+                    'User-Agent': validatedConfig.userAgent
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data.package) {
+                const killmail = data.package.killmail;
+                const zkb = data.package.zkb;
+                const relevanceCheck = checkKillmailRelevance(killmail);
+                
+                if (relevanceCheck.isRelevant) {
+                    const message = await formatSlackMessage(killmail, relevanceCheck, zkb);
+                    if(!message) return;
+
+                    if (validatedConfig.slackWebhookUrl) {
+                        await postToSlack(message);
+                    } else {
+                        console.log(message);
+                    }
                 }
             }
+
+            // Small delay to prevent hammering the API
+            await new Promise(resolve => setTimeout(resolve, 10000));
+            
         } catch (error) {
-            console.error('Error processing killmail:', error);
+            console.error('Error polling RedisQ:', error);
+            // Wait a bit longer before retrying on error
+            await new Promise(resolve => setTimeout(resolve, 60000));
         }
-    });
-
-    ws.on('close', () => {
-        console.log('WebSocket connection closed. Reconnecting in 5 seconds...');
-        setTimeout(connectWebSocket, 5000);
-    });
-
-    ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
-        ws.close();
-    });
+    }
 };
 
-console.log('Starting zKillboard WebSocket listener...');
-console.log(`Watching ${validatedConfig.watchedIds.length} entities`);
-connectWebSocket(); 
+console.log('Starting zKillboard RedisQ listener...');
+if (validatedConfig.watchedIds.length > 0) {
+    console.log(`Watching ${validatedConfig.watchedIds.length} entities`);
+} else {
+    console.log('Watching all killmails');
+}
+pollRedisQ(); 
