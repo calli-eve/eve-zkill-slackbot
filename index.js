@@ -278,10 +278,10 @@ const pollRedisQ = async () => {
                         console.log(message);
                     }
                 }
+            } else {
+                // Small delay to prevent hammering the API
+                await new Promise(resolve => setTimeout(resolve, 10000));
             }
-
-            // Small delay to prevent hammering the API
-            await new Promise(resolve => setTimeout(resolve, 10000));
             
         } catch (error) {
             console.error('Error polling RedisQ:', error);
