@@ -2,6 +2,7 @@ import fetch from 'node-fetch';
 import moment from 'moment';
 import config from './config.json' assert { type: 'json' };
 import { validateConfig } from './config.schema.js';
+import { updateHealthMetrics, checkHealth } from './health.js';
 
 // Validate configuration
 const validatedConfig = validateConfig(config);
@@ -18,6 +19,18 @@ const cache = {
     alliances: new Map()
 };
 
+// Create a simple HTTP server for health checks
+const server = new (await import('http')).createServer((req, res) => {
+    if (req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(checkHealth()));
+    } else {
+        res.writeHead(404);
+        res.end();
+    }
+});
+server.listen(8080);
+
 const fetchFromESI = async (path) => {
     try {
         const response = await fetch(`https://esi.evetech.net/latest${path}`, {
@@ -26,6 +39,7 @@ const fetchFromESI = async (path) => {
             }
         });
         if (!response.ok) throw new Error(`ESI HTTP error! status: ${response.status}`);
+        updateHealthMetrics('esi');
         return await response.json();
     } catch (error) {
         console.error(`ESI Error (${path}):`, error);
@@ -203,6 +217,7 @@ const postToSlack = async (message) => {
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
+        updateHealthMetrics('slack');
     } catch (error) {
         console.error('Error posting to Slack:', error);
     }
@@ -262,6 +277,7 @@ const pollRedisQ = async () => {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
 
+            updateHealthMetrics('poll');
             const data = await response.json();
             if (data.package) {
                 const killmail = data.package.killmail;
@@ -285,8 +301,15 @@ const pollRedisQ = async () => {
             
         } catch (error) {
             console.error('Error polling RedisQ:', error);
-            // Wait a bit longer before retrying on error
-            await new Promise(resolve => setTimeout(resolve, 60000));
+            
+            // Exit process on specific connection errors
+            if (error.message.includes('502') || 
+                error.message.includes('socket hang up') || 
+                error.code === 'ECONNRESET') {
+                console.error('Fatal connection error detected. Exiting process...');
+                process.exit(1);
+            }
+            
         }
     }
 };
