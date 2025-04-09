@@ -182,7 +182,7 @@ const formatSlackMessage = async (killmail, relevanceCheck, zkb) => {
                         fields: [...finalBlowField, ...topDamageField, ...attackerShipField],
                         accessory: {
                             type: 'image',
-                            image_url: `https://images.evetech.net/types/${killmail.victim.ship_type_id}/icon?size=128`,
+                            image_url: `https://images.evetech.net/types/${killmail.victim.ship_type_id}/render?size=128`,
                             alt_text: shipType.name
                         }
                     },
