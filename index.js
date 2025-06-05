@@ -267,7 +267,7 @@ const pollRedisQ = async () => {
     
     while (true) {
         try {
-            const response = await fetch(`https://redisq.zkillboard.com/listen.php?queueID=${validatedConfig.queueId}`, {
+            const response = await fetch(`https://zkillredisq.stream/listen.php?queueID=${validatedConfig.queueId}`, {
                 headers: {
                     'User-Agent': validatedConfig.userAgent
                 }
