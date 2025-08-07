@@ -260,7 +260,9 @@ const checkKillmailRelevance = (killmail) => {
     };
 };
 
-// Replace the WebSocket implementation with RedisQ polling
+const DELAY_BETWEEN_NO_MAILS = 5 * 60 * 1000
+const BACK_OFF_ON_ERRORS = 10 * 60 * 1000
+
 const pollRedisQ = async () => {
     console.log('Starting RedisQ polling...');
     console.log(`Using queue ID: ${validatedConfig.queueId}`);
@@ -294,14 +296,16 @@ const pollRedisQ = async () => {
                         console.log(message);
                     }
                 }
+                // Ratelimit is 2 requests per second
+                await new Promise(resolve => setTimeout(resolve, 500));
             } else {
-                // Small delay to prevent hammering the API
-                await new Promise(resolve => setTimeout(resolve, 10000));
+                // Sleep for 5 minutes if no new mails
+                await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_NO_MAILS));
             }
             
         } catch (error) {
             console.error('Error polling RedisQ:', error);
-            
+            await new Promise(resolve => setTimeout(resolve, BACK_OFF_ON_ERRORS));
             // Exit process on specific connection errors
             if (error.message.includes('502') || 
                 error.message.includes('socket hang up') || 
