@@ -16,7 +16,8 @@ const cache = {
     ships: new Map(),
     systems: new Map(),
     corporations: new Map(),
-    alliances: new Map()
+    alliances: new Map(),
+    killmails: new Map()
 };
 
 // Create a simple HTTP server for health checks
@@ -98,13 +99,38 @@ const getCorpInfo = async (corpId) => {
 const getAllianceInfo = async (allianceId) => {
     if (!allianceId) return null;
     if (cache.alliances.has(allianceId)) return cache.alliances.get(allianceId);
-    
+
     const info = await fetchFromESI(`/alliances/${allianceId}/`);
     if (info) {
         cache.alliances.set(allianceId, info);
         return info;
     }
     return null;
+};
+
+const getKillmailData = async (killID, hash) => {
+    const cacheKey = `${killID}-${hash}`;
+    if (cache.killmails.has(cacheKey)) return cache.killmails.get(cacheKey);
+
+    try {
+        const response = await fetch(
+            `https://esi.evetech.net/v1/killmails/${killID}/${hash}/`,
+            { headers: { 'User-Agent': validatedConfig.userAgent } }
+        );
+
+        if (!response.ok) {
+            console.error(`Failed to fetch killmail ${killID}: HTTP ${response.status}`);
+            return null;
+        }
+
+        updateHealthMetrics('esi');
+        const killmail = await response.json();
+        cache.killmails.set(cacheKey, killmail);
+        return killmail;
+    } catch (error) {
+        console.error(`Error fetching killmail ${killID}:`, error);
+        return null;
+    }
 };
 
 const formatSlackMessage = async (killmail, relevanceCheck, zkb) => {
@@ -282,10 +308,20 @@ const pollRedisQ = async () => {
             updateHealthMetrics('poll');
             const data = await response.json();
             if (data.package) {
-                const killmail = data.package.killmail;
+                const killID = data.package.killID;
+                // Fetch killmail from ESI using killID and hash
+                console.log(`Fetching killmail ${killID} from ESI...`);
+                const killmail = await getKillmailData(killID, data.package.zkb.hash);
+
+                if (!killmail) {
+                    console.error(`Failed to fetch killmail ${killID}, skipping...`);
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    continue;
+                }
+
                 const zkb = data.package.zkb;
                 const relevanceCheck = checkKillmailRelevance(killmail);
-                
+
                 if (relevanceCheck.isRelevant) {
                     const message = await formatSlackMessage(killmail, relevanceCheck, zkb);
                     if(!message) return;
